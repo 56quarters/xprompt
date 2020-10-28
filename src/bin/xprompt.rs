@@ -238,11 +238,11 @@ fn main() {
         prompt = ANSIStrings(&[
             pallet.cyan.paint(timestamp),
             pallet.white.paint(" as "),
-            pallet.blue.paint(user.unwrap_or("[unknown]".to_owned())),
+            pallet.blue.paint(user.unwrap_or_else(|| "[unknown]".to_owned())),
             pallet.white.paint(" at "),
-            pallet.orange.paint(host.unwrap_or("[unknown]".to_owned())),
+            pallet.orange.paint(host.unwrap_or_else(|| "[unknown]".to_owned())),
             pallet.white.paint(" in "),
-            pallet.green.paint(relative.unwrap_or("[unknown]".to_owned()))
+            pallet.green.paint(relative.unwrap_or_else(|| "[unknown]".to_owned()))
         ])
     );
 
