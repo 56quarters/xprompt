@@ -6,7 +6,8 @@
 use ansi_term::{ANSIStrings, Color, Style};
 use chrono::Local;
 use clap::{crate_version, Clap};
-use git2::{Repository, Status};
+use git2::{Oid, Repository, Status};
+use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::env;
 use std::fmt::{self, Display, Formatter, Write};
@@ -144,7 +145,7 @@ fn get_git_branch(repo: &Repository) -> Option<String> {
     }
 }
 
-fn get_git_flags(repo: &Repository) -> BTreeSet<GitFlags> {
+fn get_git_flags(repo: &mut Repository) -> BTreeSet<GitFlags> {
     let mut out = BTreeSet::new();
     if let Ok(statuses) = repo.statuses(None) {
         for s in statuses.iter() {
@@ -162,6 +163,10 @@ fn get_git_flags(repo: &Repository) -> BTreeSet<GitFlags> {
                 out.insert(GitFlags::ADDED);
             }
         }
+    }
+
+    if is_stashed(repo) {
+        out.insert(GitFlags::STASHED);
     }
 
     out
@@ -186,6 +191,18 @@ fn is_index_modified(status: Status) -> bool {
         != Status::CURRENT
 }
 
+fn is_stashed(repo: &mut Repository) -> bool {
+    let stashed = Cell::new(false);
+
+    let _ = repo.stash_foreach(|_a: usize, _b: &str, _c: &Oid| -> bool {
+        stashed.set(true);
+        // stop as soon as we determine that there's any stash
+        false
+    });
+
+    stashed.get()
+}
+
 fn write_git_branch() {
     todo!()
 }
@@ -203,11 +220,11 @@ fn main() {
     let host = get_host();
     let relative = get_relative_dir(&home, &path);
 
-    let repo = path.and_then(|p| Repository::discover(p).ok());
+    let mut repo = path.and_then(|p| Repository::discover(p).ok());
     let mut git_branch = None;
     let mut git_flags = BTreeSet::new();
 
-    if let Some(r) = &repo {
+    if let Some(ref mut r) = repo {
         git_branch = get_git_branch(r);
         git_flags = get_git_flags(r);
     }
