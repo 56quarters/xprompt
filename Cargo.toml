@@ -1,5 +1,5 @@
 [package]
-name = "prompter"
+name = "xprompt"
 version = "0.1.0"
 authors = ["Nick Pillitteri"]
 edition = "2018"
