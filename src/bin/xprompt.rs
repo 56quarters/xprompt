@@ -92,7 +92,11 @@ fn get_host() -> Option<String> {
 
 fn get_git_branch(repo: &Repository) -> Option<String> {
     if let Ok(r) = repo.head() {
-        r.shorthand().map(|s| s.to_owned())
+        if r.is_branch() {
+            r.shorthand().map(|s| s.to_owned())
+        } else {
+            r.peel_to_commit().ok().map(|c| c.id().to_string())
+        }
     } else {
         None
     }
