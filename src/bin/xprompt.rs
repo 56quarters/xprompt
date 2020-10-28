@@ -3,23 +3,61 @@
 //
 //
 
-use ansi_term::{Color, Style};
+use ansi_term::{ANSIStrings, Color, Style};
 use chrono::Local;
-use clap::Clap;
-use git2::{BranchType, Repository};
+use clap::{crate_version, Clap};
+use git2::Repository;
 use std::env;
-use std::fmt::{Debug, Write};
+use std::fmt::{self, Display, Formatter, Write};
 
 ///
 #[derive(Debug, Clap)]
-#[clap(name = "xprompt")]
-struct PrompterOptions {}
+#[clap(name = "xprompt", version = crate_version!())]
+struct PrompterOptions {
+    /// Prints the PS1 prompt
+    #[clap(long)]
+    ps1: bool,
 
+    /// Prints the PS2 prompt
+    #[clap(long)]
+    ps2: bool,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum GitFlags {
     UNVERSIONED,
     MODIFED,
     ADDED,
     STASHED,
+}
+
+impl GitFlags {
+    fn val(&self) -> &'static str {
+        match self {
+            Self::UNVERSIONED => "?",
+            Self::MODIFED => "!",
+            Self::ADDED => "+",
+            Self::STASHED => "$",
+        }
+    }
+}
+
+impl Display for GitFlags {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.val().fmt(f)
+    }
+}
+
+impl<'a> Into<&'a str> for GitFlags {
+    fn into(self) -> &'a str {
+        self.val()
+    }
+}
+
+impl<'a> Into<&'a str> for &'a GitFlags {
+    fn into(self) -> &'a str {
+        self.val()
+    }
 }
 
 #[allow(dead_code)]
@@ -69,6 +107,9 @@ fn get_home() -> Option<String> {
 fn get_current_dir() -> Option<String> {
     env::var("PWD")
         .ok()
+        // Environmental variable is missing (maybe someone unset it), so we fall
+        // back to the standard library which will use platform specific logic and
+        // potentially do a system call.
         .or_else(|| env::current_dir().ok().and_then(|p| p.to_str().map(|s| s.to_owned())))
 }
 
@@ -102,8 +143,8 @@ fn get_git_branch(repo: &Repository) -> Option<String> {
     }
 }
 
-fn get_git_flags<'a>(repo: &'a Repository) -> Vec<GitFlags> {
-    Vec::new()
+fn get_git_flags(repo: &Repository) -> Vec<GitFlags> {
+    vec![GitFlags::MODIFED, GitFlags::ADDED]
 }
 
 fn main() {
@@ -129,32 +170,43 @@ fn main() {
     let mut buf = String::new();
     let _ = write!(
         &mut buf,
-        "{timestamp} {as_} {user} {at} {host} {in_} {dir}",
-        timestamp = pallet.cyan.paint(timestamp),
-        as_ = pallet.white.paint("as"),
-        user = pallet.blue.paint(user.unwrap_or("[unknown]".to_owned())),
-        at = pallet.white.paint("at"),
-        host = pallet.orange.paint(host.unwrap_or("[unknown]".to_owned())),
-        in_ = pallet.white.paint("in"),
-        dir = pallet.green.paint(relative.unwrap_or("[unknown]".to_owned())),
+        "{prompt}",
+        prompt = ANSIStrings(&[
+            pallet.cyan.paint(timestamp),
+            pallet.white.paint(" as "),
+            pallet.blue.paint(user.unwrap_or("[unknown]".to_owned())),
+            pallet.white.paint(" at "),
+            pallet.orange.paint(host.unwrap_or("[unknown]".to_owned())),
+            pallet.white.paint(" in "),
+            pallet.green.paint(relative.unwrap_or("[unknown]".to_owned()))
+        ])
     );
 
     if let Some(b) = git_branch {
         let _ = write!(
             &mut buf,
-            " {on} {branch}",
-            on = pallet.white.paint("on"),
-            branch = pallet.violet.paint(b),
+            "{branch}",
+            branch = ANSIStrings(&[pallet.white.paint(" on "), pallet.violet.paint(b),])
         );
     }
 
-    // if !git_flags.is_empty() {
-    //     let _ = write!(
-    //         &mut buf,
-    //         " [{flags}]",
-    //         flags = pallet.blue.paint(git_flags.join("")),
-    //     );
-    // }
+    if !git_flags.is_empty() {
+        let flags = git_flags
+            .iter()
+            .map(|f| f.val())
+            .collect::<Vec<&'static str>>()
+            .join("");
+
+        let _ = write!(
+            &mut buf,
+            "{flags}",
+            flags = ANSIStrings(&[
+                pallet.blue.paint(" ["),
+                pallet.blue.paint(flags),
+                pallet.blue.paint("]"),
+            ])
+        );
+    }
 
     print!("{}", buf);
 }
