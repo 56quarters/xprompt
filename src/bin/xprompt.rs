@@ -6,7 +6,8 @@
 use ansi_term::{ANSIStrings, Color, Style};
 use chrono::Local;
 use clap::{crate_version, Clap};
-use git2::Repository;
+use git2::{Repository, Status};
+use std::collections::BTreeSet;
 use std::env;
 use std::fmt::{self, Display, Formatter, Write};
 
@@ -23,7 +24,7 @@ struct PrompterOptions {
     ps2: bool,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 enum GitFlags {
     UNVERSIONED,
     MODIFED,
@@ -143,8 +144,54 @@ fn get_git_branch(repo: &Repository) -> Option<String> {
     }
 }
 
-fn get_git_flags(repo: &Repository) -> Vec<GitFlags> {
-    vec![GitFlags::MODIFED, GitFlags::ADDED]
+fn get_git_flags(repo: &Repository) -> BTreeSet<GitFlags> {
+    let mut out = BTreeSet::new();
+    if let Ok(statuses) = repo.statuses(None) {
+        for s in statuses.iter() {
+            let status = s.status();
+
+            if is_unversioned(status) {
+                out.insert(GitFlags::UNVERSIONED);
+            }
+
+            if is_working_tree_modified(status) {
+                out.insert(GitFlags::MODIFED);
+            }
+
+            if is_index_modified(status) {
+                out.insert(GitFlags::ADDED);
+            }
+        }
+    }
+
+    out
+}
+
+fn is_unversioned(status: Status) -> bool {
+    (status & Status::WT_NEW) != Status::CURRENT
+}
+
+fn is_working_tree_modified(status: Status) -> bool {
+    (status & (Status::WT_DELETED | Status::WT_MODIFIED | Status::WT_RENAMED | Status::WT_TYPECHANGE))
+        != Status::CURRENT
+}
+
+fn is_index_modified(status: Status) -> bool {
+    (status
+        & (Status::INDEX_DELETED
+            | Status::INDEX_MODIFIED
+            | Status::INDEX_NEW
+            | Status::INDEX_RENAMED
+            | Status::INDEX_TYPECHANGE))
+        != Status::CURRENT
+}
+
+fn write_git_branch() {
+    todo!()
+}
+
+fn write_git_status() {
+    todo!()
 }
 
 fn main() {
@@ -158,7 +205,7 @@ fn main() {
 
     let repo = path.and_then(|p| Repository::discover(p).ok());
     let mut git_branch = None;
-    let mut git_flags = Vec::new();
+    let mut git_flags = BTreeSet::new();
 
     if let Some(r) = &repo {
         git_branch = get_git_branch(r);
@@ -188,24 +235,24 @@ fn main() {
             "{branch}",
             branch = ANSIStrings(&[pallet.white.paint(" on "), pallet.violet.paint(b),])
         );
-    }
 
-    if !git_flags.is_empty() {
-        let flags = git_flags
-            .iter()
-            .map(|f| f.val())
-            .collect::<Vec<&'static str>>()
-            .join("");
+        if !git_flags.is_empty() {
+            let flags = git_flags
+                .iter()
+                .map(|f| f.val())
+                .collect::<Vec<&'static str>>()
+                .join("");
 
-        let _ = write!(
-            &mut buf,
-            "{flags}",
-            flags = ANSIStrings(&[
-                pallet.blue.paint(" ["),
-                pallet.blue.paint(flags),
-                pallet.blue.paint("]"),
-            ])
-        );
+            let _ = write!(
+                &mut buf,
+                "{flags}",
+                flags = ANSIStrings(&[
+                    pallet.blue.paint(" ["),
+                    pallet.blue.paint(flags),
+                    pallet.blue.paint("]"),
+                ])
+            );
+        }
     }
 
     print!("{}", buf);
