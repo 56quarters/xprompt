@@ -2,6 +2,12 @@
 name = "xprompt"
 version = "0.1.0"
 authors = ["Nick Pillitteri"]
+description = "Display a colorful Bash prompt"
+homepage = "https://github.com/56quarters/xprompt"
+repository = "https://github.com/56quarters/xprompt"
+readme = "README.md"
+license = "GPL-3.0+"
+keywords = ["bash", "prompt"]
 edition = "2018"
 
 [dependencies]
