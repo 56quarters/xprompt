@@ -1,5 +1,8 @@
 # xprompt
 
+[![Build Status](https://travis-ci.org/56quarters/xprompt.svg?branch=master)](https://travis-ci.org/56quarters/xprompt)
+[![crates.io](https://img.shields.io/crates/v/xprompt.svg)](https://crates.io/crates/xprompt/)
+
 Display a colorful Bash prompt.
 
 `xprompt` is a CLI tool for displaying something that can be used as a `PS1` or
