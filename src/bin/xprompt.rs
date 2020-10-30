@@ -29,17 +29,20 @@ use std::fmt::{self, Display, Formatter, Write};
 #[derive(Debug, Clap)]
 #[clap(name = "xprompt", version = crate_version!())]
 struct PrompterOptions {
-    /// Prints the PS1 prompt
+    /// Prints the PS1 prompt (default action)
     #[clap(long, conflicts_with = "ps2")]
     ps1: bool,
 
     /// Prints the PS2 prompt
     #[clap(long, conflicts_with = "ps1")]
     ps2: bool,
+
+    /// Prompt for user input (usually '$' or '#')
+    #[clap(long, conflicts_with = "ps2", default_value = "$")]
+    input: String,
 }
 
-///
-///
+/// Potential states files in a Git repository or the repository itself could be in
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 enum GitFlags {
     UNVERSIONED,
@@ -65,8 +68,7 @@ impl Display for GitFlags {
     }
 }
 
-///
-///
+/// Colors to use for writing output
 #[allow(dead_code)]
 struct Pallet {
     black: Style,
@@ -99,22 +101,23 @@ impl Default for Pallet {
     }
 }
 
-///
+/// Get the current local timestamp
 fn get_timestamp() -> String {
     Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
-///
+/// Determine the username based on the `USER` variable
 fn get_user() -> Option<String> {
     env::var("USER").ok()
 }
 
-///
+/// Determine the user's home directory based on the `HOME` variable
 fn get_home() -> Option<String> {
     env::var("HOME").ok()
 }
 
-///
+/// Get the current working directory based on the `PWD` variable if possible
+/// or fall back to using a function from the standard library
 fn get_current_dir() -> Option<String> {
     env::var("PWD")
         .ok()
@@ -124,27 +127,27 @@ fn get_current_dir() -> Option<String> {
         .or_else(|| env::current_dir().ok().and_then(|p| p.to_str().map(|s| s.to_owned())))
 }
 
-///
-fn get_relative_dir(home: &Option<String>, current: &Option<String>) -> Option<String> {
-    if let Some(h) = home {
+/// Get the current directory relative to the user's home directory
+/// using the `~` character in place of the path of the home directory.
+fn get_relative_dir(current: &Option<String>) -> Option<String> {
+    if let Some(ref h) = get_home() {
         if let Some(c) = current {
-            return Some(if c.starts_with(h) {
-                c.replace(h, "~")
-            } else {
-                c.clone()
-            });
+            return Some(if c.starts_with(h) { c.replace(h, "~") } else { c.clone() });
         }
     }
 
     None
 }
 
-///
+/// Get the current hostname based on the `HOSTNAME` variable if possible or
+/// fallback to using a method from the `gethostname` crate.
 fn get_host() -> Option<String> {
-    gethostname::gethostname().to_str().map(|s| s.to_string())
+    env::var("HOSTNAME")
+        .ok()
+        .or_else(|| gethostname::gethostname().to_str().map(|s| s.to_string()))
 }
 
-///
+/// Get the current git branch or commit if the current directory is a git repository
 fn get_git_branch(repo: &Repository) -> Option<String> {
     if let Ok(r) = repo.head() {
         if r.is_branch() {
@@ -157,7 +160,7 @@ fn get_git_branch(repo: &Repository) -> Option<String> {
     }
 }
 
-///
+/// Get state of the current git repository (new files, modified, index, etc)
 fn get_git_flags(repo: &mut Repository) -> BTreeSet<GitFlags> {
     let mut out = BTreeSet::new();
     if let Ok(statuses) = repo.statuses(None) {
@@ -185,20 +188,20 @@ fn get_git_flags(repo: &mut Repository) -> BTreeSet<GitFlags> {
     out
 }
 
-///
+/// Is this status an unversioned file?
 #[inline]
 fn is_unversioned(status: Status) -> bool {
     (status & Status::WT_NEW) != Status::CURRENT
 }
 
-///
+/// Is this status a modified file?
 #[inline]
 fn is_working_tree_modified(status: Status) -> bool {
     (status & (Status::WT_DELETED | Status::WT_MODIFIED | Status::WT_RENAMED | Status::WT_TYPECHANGE))
         != Status::CURRENT
 }
 
-///
+/// Is this status a change to the index?
 #[inline]
 fn is_index_modified(status: Status) -> bool {
     (status
@@ -210,7 +213,7 @@ fn is_index_modified(status: Status) -> bool {
         != Status::CURRENT
 }
 
-///
+/// Are there any stashed changes in this repository?
 #[inline]
 fn is_stashed(repo: &mut Repository) -> bool {
     let stashed = Cell::new(false);
@@ -224,6 +227,7 @@ fn is_stashed(repo: &mut Repository) -> bool {
     stashed.get()
 }
 
+/// Write the colorized branch of the current git repository
 fn write_git_branch(buf: &mut String, pallet: &Pallet, branch: &str) {
     let _ = write!(
         buf,
@@ -232,6 +236,7 @@ fn write_git_branch(buf: &mut String, pallet: &Pallet, branch: &str) {
     );
 }
 
+/// Write colorized information about the status of the current git repository
 fn write_git_status(buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags>) {
     let flag_str = flags.iter().map(|f| f.val()).collect::<Vec<&'static str>>().join("");
 
@@ -246,10 +251,11 @@ fn write_git_status(buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags
     );
 }
 
+/// Write some colorized basic information to the given buffer
 fn write_base_prompt(buf: &mut String, pallet: &Pallet, timestamp: &str, user: &str, host: &str, path: &str) {
     let _ = write!(
         buf,
-        "{prompt}",
+        "\n{prompt}",
         prompt = ANSIStrings(&[
             pallet.cyan.paint(timestamp),
             pallet.white.paint(" as "),
@@ -262,16 +268,20 @@ fn write_base_prompt(buf: &mut String, pallet: &Pallet, timestamp: &str, user: &
     );
 }
 
-fn get_ps1(pallet: &Pallet) -> String {
+/// Write the '$' prompt for user input on a newline
+fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: &str) {
+    let _ = write!(buf, "\n{} ", pallet.white.paint(input));
+}
+
+/// Get a string to represent PS1 (normal Bash prompt)
+fn get_ps1(pallet: &Pallet, input: &str) -> String {
     let timestamp = get_timestamp();
     let user = get_user().unwrap_or_else(|| "".to_owned());
     let host = get_host().unwrap_or_else(|| "".to_owned());
-    let home = get_home();
     let path = get_current_dir();
-    let relative = get_relative_dir(&home, &path).unwrap_or_else(|| "".to_owned());
+    let relative = get_relative_dir(&path).unwrap_or_else(|| "".to_owned());
 
     let mut buf = String::new();
-
     write_base_prompt(&mut buf, &pallet, &timestamp, &user, &host, &relative);
 
     let mut repo = path.and_then(|p| Repository::discover(p).ok());
@@ -287,16 +297,25 @@ fn get_ps1(pallet: &Pallet) -> String {
         }
     }
 
+    write_command_prompt(&mut buf, &pallet, input);
+
     buf
 }
 
+/// Get a string to represent PS2 (line continuation)
 fn get_ps2(pallet: &Pallet) -> String {
-    format!("{}", pallet.yellow.paint("->"))
+    format!("{}", pallet.yellow.paint("-> "))
 }
 
 fn main() {
     let opts = PrompterOptions::parse();
     let pallet = Pallet::default();
-    let buf = if opts.ps2 { get_ps2(&pallet) } else { get_ps1(&pallet) };
+
+    let buf = if opts.ps2 {
+        get_ps2(&pallet)
+    } else {
+        get_ps1(&pallet, &opts.input)
+    };
+
     print!("{}", buf);
 }
