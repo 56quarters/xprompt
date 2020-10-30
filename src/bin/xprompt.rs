@@ -17,7 +17,6 @@
 //
 
 use ansi_term::{ANSIStrings, Color, Style};
-use chrono::Local;
 use clap::{crate_version, Clap};
 use git2::{Oid, Repository, Status};
 use std::cell::Cell;
@@ -29,16 +28,24 @@ use std::fmt::{self, Display, Formatter, Write};
 #[derive(Debug, Clap)]
 #[clap(name = "xprompt", version = crate_version!())]
 struct PrompterOptions {
-    /// Prints the PS1 prompt (default action)
-    #[clap(long, conflicts_with = "ps2")]
+    /// Prints the PS1 prompt without Git information
+    #[clap(long, conflicts_with = "ps2", conflicts_with = "vcs")]
     ps1: bool,
 
     /// Prints the PS2 prompt
-    #[clap(long, conflicts_with = "ps1")]
+    #[clap(long, conflicts_with = "ps1", conflicts_with = "vcs")]
     ps2: bool,
 
+    /// Prints version control information (git, hg, etc)
+    #[clap(long, conflicts_with = "ps1", conflicts_with = "ps2")]
+    vcs: bool,
+
+    /// Path to xprompt itself if not installed on your PATH
+    #[clap(long, default_value = "xprompt")]
+    path: String,
+
     /// Prompt for user input (usually '$' or '#')
-    #[clap(long, conflicts_with = "ps2", default_value = "$")]
+    #[clap(long, default_value = "$")]
     input: String,
 }
 
@@ -101,20 +108,10 @@ impl Default for Pallet {
     }
 }
 
-/// Get the current local timestamp
-fn get_timestamp() -> String {
-    Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
-}
-
-/// Determine the username based on the `USER` variable
-fn get_user() -> Option<String> {
-    env::var("USER").ok()
-}
-
-/// Determine the user's home directory based on the `HOME` variable
-fn get_home() -> Option<String> {
-    env::var("HOME").ok()
-}
+const TIMESTAMP: &'static str = r"\D{%Y-%m-%dT%H:%M:%S}";
+const USER: &'static str = r"\u";
+const WORKING_DIR: &'static str = r"\w";
+const HOST: &'static str = r"\h";
 
 /// Get the current working directory based on the `PWD` variable if possible
 /// or fall back to using a function from the standard library
@@ -125,26 +122,6 @@ fn get_current_dir() -> Option<String> {
         // back to the standard library which will use platform specific logic and
         // potentially do a system call.
         .or_else(|| env::current_dir().ok().and_then(|p| p.to_str().map(|s| s.to_owned())))
-}
-
-/// Get the current directory relative to the user's home directory
-/// using the `~` character in place of the path of the home directory.
-fn get_relative_dir(current: &Option<String>) -> Option<String> {
-    if let Some(ref h) = get_home() {
-        if let Some(c) = current {
-            return Some(if c.starts_with(h) { c.replace(h, "~") } else { c.clone() });
-        }
-    }
-
-    None
-}
-
-/// Get the current hostname based on the `HOSTNAME` variable if possible or
-/// fallback to using a method from the `gethostname` crate.
-fn get_host() -> Option<String> {
-    env::var("HOSTNAME")
-        .ok()
-        .or_else(|| gethostname::gethostname().to_str().map(|s| s.to_string()))
 }
 
 /// Get the current git branch or commit if the current directory is a git repository
@@ -232,7 +209,7 @@ fn write_git_branch(buf: &mut String, pallet: &Pallet, branch: &str) {
     let _ = write!(
         buf,
         "{branch}",
-        branch = ANSIStrings(&[pallet.white.paint(" on "), pallet.violet.paint(branch),])
+        branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch),])
     );
 }
 
@@ -252,20 +229,29 @@ fn write_git_status(buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags
 }
 
 /// Write some colorized basic information to the given buffer
-fn write_base_prompt(buf: &mut String, pallet: &Pallet, timestamp: &str, user: &str, host: &str, path: &str) {
+fn write_base_prompt(buf: &mut String, pallet: &Pallet) {
     let _ = write!(
         buf,
         "\n{prompt}",
         prompt = ANSIStrings(&[
-            pallet.cyan.paint(timestamp),
+            pallet.cyan.paint(TIMESTAMP),
             pallet.white.paint(" as "),
-            pallet.blue.paint(user),
+            pallet.blue.paint(USER),
             pallet.white.paint(" at "),
-            pallet.orange.paint(host),
+            pallet.orange.paint(HOST),
             pallet.white.paint(" in "),
-            pallet.green.paint(path),
+            pallet.green.paint(WORKING_DIR),
         ])
     );
+}
+
+/// Write Bash code to call xprompt again in "VCS" mode.
+///
+/// PS1 is only set once per shell and we need version control information to
+/// reflect the current state of a repository every time the prompt is displayed.
+/// Thus, we don't emit the actual git status, just code to call xprompt again.
+fn write_vcs_callback(buf: &mut String, path: &str) {
+    let _ = write!(buf, r" $({path} --vcs)", path = path);
 }
 
 /// Write the '$' prompt for user input on a newline
@@ -274,16 +260,24 @@ fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: &str) {
 }
 
 /// Get a string to represent PS1 (normal Bash prompt)
-fn get_ps1(pallet: &Pallet, input: &str) -> String {
-    let timestamp = get_timestamp();
-    let user = get_user().unwrap_or_else(|| "".to_owned());
-    let host = get_host().unwrap_or_else(|| "".to_owned());
-    let path = get_current_dir();
-    let relative = get_relative_dir(&path).unwrap_or_else(|| "".to_owned());
-
+fn get_ps1(pallet: &Pallet, input: &str, path: &str) -> String {
     let mut buf = String::new();
-    write_base_prompt(&mut buf, &pallet, &timestamp, &user, &host, &relative);
+    write_base_prompt(&mut buf, &pallet);
+    write_vcs_callback(&mut buf, &path);
+    write_command_prompt(&mut buf, &pallet, input);
+    buf
+}
 
+/// Get a string to represent PS2 (line continuation)
+fn get_ps2(pallet: &Pallet) -> String {
+    format!("{}", pallet.yellow.paint("-> "))
+}
+
+/// Get a string to represent version control information
+fn get_vcs(pallet: &Pallet) -> String {
+    let mut buf = String::new();
+
+    let path = get_current_dir();
     let mut repo = path.and_then(|p| Repository::discover(p).ok());
     if let Some(ref mut r) = repo {
         let git_branch = get_git_branch(r);
@@ -297,14 +291,7 @@ fn get_ps1(pallet: &Pallet, input: &str) -> String {
         }
     }
 
-    write_command_prompt(&mut buf, &pallet, input);
-
     buf
-}
-
-/// Get a string to represent PS2 (line continuation)
-fn get_ps2(pallet: &Pallet) -> String {
-    format!("{}", pallet.yellow.paint("-> "))
 }
 
 fn main() {
@@ -313,8 +300,10 @@ fn main() {
 
     let buf = if opts.ps2 {
         get_ps2(&pallet)
+    } else if opts.vcs {
+        get_vcs(&pallet)
     } else {
-        get_ps1(&pallet, &opts.input)
+        get_ps1(&pallet, &opts.input, &opts.path)
     };
 
     print!("{}", buf);

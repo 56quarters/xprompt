@@ -23,11 +23,13 @@ xprompt --help
 ## Usage
 
 To use `xprompt` to set your Bash prompt, add the following to your `.bashrc` or
-`.bash_profile` files in your home directory.
+`.bash_profile` files in your home directory. NOTE: `xprompt` must be available on
+your `PATH` in order to work due to the specifics of how version control information
+is generated.
 
 ```
-export PS1=$(xprompt --ps1)
-export PS2=$(xprompt --ps2)
+export PS1="$(xprompt --ps1)"
+export PS2="$(xprompt --ps2)"
 ```
 
 ![xprompt screenshot](img/screenshot.png)
