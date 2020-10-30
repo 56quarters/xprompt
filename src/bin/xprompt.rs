@@ -24,22 +24,29 @@ use std::collections::BTreeSet;
 use std::env;
 use std::fmt::{self, Display, Formatter, Write};
 
+const TIMESTAMP: &str = r"\D{%Y-%m-%dT%H:%M:%S}";
+const USER: &str = r"\u";
+const WORKING_DIR: &str = r"\w";
+const HOST: &str = r"\h";
+
 /// Display a colorful Bash prompt
 #[derive(Debug, Clap)]
 #[clap(name = "xprompt", version = crate_version!())]
 struct PrompterOptions {
-    /// Prints the PS1 prompt without Git information
-    #[clap(long, conflicts_with = "ps2", conflicts_with = "vcs")]
-    ps1: bool,
+    #[clap(subcommand)]
+    mode: SubCommand,
+}
 
-    /// Prints the PS2 prompt
-    #[clap(long, conflicts_with = "ps1", conflicts_with = "vcs")]
-    ps2: bool,
+#[derive(Debug, Clap)]
+enum SubCommand {
+    Ps1(Ps1Command),
+    Ps2(Ps2Command),
+    Vcs(VcsCommand),
+}
 
-    /// Prints version control information (git, hg, etc)
-    #[clap(long, conflicts_with = "ps1", conflicts_with = "ps2")]
-    vcs: bool,
-
+/// Output a PS1 Bash prompt (standard prompt)
+#[derive(Debug, Clap)]
+struct Ps1Command {
     /// Path to xprompt itself if not installed on your PATH
     #[clap(long, default_value = "xprompt")]
     path: String,
@@ -48,6 +55,14 @@ struct PrompterOptions {
     #[clap(long, default_value = "$")]
     input: String,
 }
+
+/// Output a PS2 Bash prompt (continuation)
+#[derive(Debug, Clap)]
+struct Ps2Command;
+
+/// Output version control information
+#[derive(Debug, Clap)]
+struct VcsCommand;
 
 /// Potential states files in a Git repository or the repository itself could be in
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -107,11 +122,6 @@ impl Default for Pallet {
         }
     }
 }
-
-const TIMESTAMP: &'static str = r"\D{%Y-%m-%dT%H:%M:%S}";
-const USER: &'static str = r"\u";
-const WORKING_DIR: &'static str = r"\w";
-const HOST: &'static str = r"\h";
 
 /// Get the current working directory based on the `PWD` variable if possible
 /// or fall back to using a function from the standard library
@@ -251,7 +261,7 @@ fn write_base_prompt(buf: &mut String, pallet: &Pallet) {
 /// reflect the current state of a repository every time the prompt is displayed.
 /// Thus, we don't emit the actual git status, just code to call xprompt again.
 fn write_vcs_callback(buf: &mut String, path: &str) {
-    let _ = write!(buf, r" $({path} --vcs)", path = path);
+    let _ = write!(buf, " $({path} vcs)", path = path);
 }
 
 /// Write the '$' prompt for user input on a newline
@@ -262,9 +272,9 @@ fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: &str) {
 /// Get a string to represent PS1 (normal Bash prompt)
 fn get_ps1(pallet: &Pallet, input: &str, path: &str) -> String {
     let mut buf = String::new();
-    write_base_prompt(&mut buf, &pallet);
-    write_vcs_callback(&mut buf, &path);
-    write_command_prompt(&mut buf, &pallet, input);
+    write_base_prompt(&mut buf, pallet);
+    write_vcs_callback(&mut buf, path);
+    write_command_prompt(&mut buf, pallet, input);
     buf
 }
 
@@ -298,12 +308,10 @@ fn main() {
     let opts = PrompterOptions::parse();
     let pallet = Pallet::default();
 
-    let buf = if opts.ps2 {
-        get_ps2(&pallet)
-    } else if opts.vcs {
-        get_vcs(&pallet)
-    } else {
-        get_ps1(&pallet, &opts.input, &opts.path)
+    let buf = match opts.mode {
+        SubCommand::Ps1(c) => get_ps1(&pallet, &c.input, &c.path),
+        SubCommand::Ps2(_c) => get_ps2(&pallet),
+        SubCommand::Vcs(_c) => get_vcs(&pallet),
     };
 
     print!("{}", buf);

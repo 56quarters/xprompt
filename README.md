@@ -28,13 +28,21 @@ your `PATH` in order to work due to the specifics of how version control informa
 is generated.
 
 ```
-export PS1="$(xprompt --ps1)"
-export PS2="$(xprompt --ps2)"
+export PS1="$(xprompt ps1)"
+export PS2="$(xprompt ps2)"
 ```
 
 ![xprompt screenshot](img/screenshot.png)
 
 That's all you need!
+
+## Limitations
+
+Currently, xprompt is hardcoded to emit a prompt how I want. It's not configurable in
+any way regarding colors, style, or information displayed. This is unlikely to change.
+If you want a prompt that is more configurable, you should take a look at [Jess Fraz's dot
+files](https://github.com/jessfraz/dotfiles/blob/663bc68ac49fe04d7a52ec410d3074d038dbe87f/.bash_prompt),
+which the style of xprompt is based on.
 
 ## Source
 
