@@ -19,6 +19,7 @@
 use ansi_term::{ANSIStrings, Color, Style};
 use clap::{crate_version, Clap};
 use git2::{Oid, Repository, Status};
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::env;
@@ -32,7 +33,7 @@ const HOST: &str = r"\h";
 /// Display a colorful Bash prompt
 #[derive(Debug, Clap)]
 #[clap(name = "xprompt", version = crate_version!())]
-struct PrompterOptions {
+struct XpromptOptions {
     #[clap(subcommand)]
     mode: SubCommand,
 }
@@ -86,7 +87,86 @@ impl GitFlags {
 
 impl Display for GitFlags {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.val().fmt(f)
+        Display::fmt(self.val(), f)
+    }
+}
+
+/// Wrapper around a string and associated style that implements `Display`.
+///
+/// Similar to `ANSIString` except Bash escape codes (`\[` and `\]`) are emitted
+/// around non-printing characters to help Bash correctly calculate line length
+/// for line editing purposes.
+///
+/// See the [ansi term issue](https://github.com/ogham/rust-ansi-term/issues/36)
+/// for a more detailed description of the issue and why we're solving it here.
+///
+/// See also the [Bash man page](https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Controlling-the-Prompt).
+struct BashString<'a> {
+    style: Style,
+    string: Cow<'a, str>,
+}
+
+impl<'a> BashString<'a> {
+    fn new<S>(style: Style, string: S) -> Self
+        where
+            S: Into<Cow<'a, str>>,
+    {
+        BashString {
+            style,
+            string: string.into(),
+        }
+    }
+}
+
+impl<'a> Display for BashString<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "\\[{}\\]{}\\[{}\\]",
+            self.style.prefix(),
+            self.string,
+            self.style.suffix()
+        )
+    }
+}
+
+/// Wrapper around multiple `BashString` instances to be displayed together.
+///
+/// Similar to `ANSIStrings`, except that Bash escape codes (`\[` and `\]`) are
+/// emitted around non-printing characters to help Bash correctly calculate
+/// line length for line editing purposes.
+///
+/// Note that unlike `ANSIStrings`, this wrapper doesn't do anything clever
+/// regarding only emitting reset sequences when needed. Instead, it assumes
+/// all strings to be displayed differ only by color and therefore only emits
+/// a single reset after the last string. We can make this tradeoff since we
+/// know exactly how this object will be used.
+///
+/// See the [ansi term issue](https://github.com/ogham/rust-ansi-term/issues/36)
+/// for a more detailed description of the issue and why we're solving it here.
+///
+/// See also the [Bash man page](https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Controlling-the-Prompt).
+struct BashStrings<'a> {
+    strings: &'a [BashString<'a>],
+}
+
+impl<'a> BashStrings<'a> {
+    fn new(strings: &'a [BashString<'a>]) -> Self {
+        BashStrings { strings }
+    }
+}
+
+impl<'a> Display for BashStrings<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for s in self.strings {
+            write!(f, "\\[{}\\]{}", s.style.prefix(), s.string)?;
+        }
+
+        if let Some(s) = self.strings.iter().last() {
+            write!(f, "\\[{}\\]", s.style.suffix())?;
+        }
+
+        Ok(())
     }
 }
 
@@ -149,30 +229,31 @@ fn get_git_branch(repo: &Repository) -> Option<String> {
 
 /// Get state of the current git repository (new files, modified, index, etc)
 fn get_git_flags(repo: &mut Repository) -> BTreeSet<GitFlags> {
-    let mut out = BTreeSet::new();
+    let mut flags = BTreeSet::new();
+
     if let Ok(statuses) = repo.statuses(None) {
         for s in statuses.iter() {
             let status = s.status();
 
             if is_unversioned(status) {
-                out.insert(GitFlags::UNVERSIONED);
+                flags.insert(GitFlags::UNVERSIONED);
             }
 
             if is_working_tree_modified(status) {
-                out.insert(GitFlags::MODIFED);
+                flags.insert(GitFlags::MODIFED);
             }
 
             if is_index_modified(status) {
-                out.insert(GitFlags::ADDED);
+                flags.insert(GitFlags::ADDED);
             }
         }
     }
 
     if is_stashed(repo) {
-        out.insert(GitFlags::STASHED);
+        flags.insert(GitFlags::STASHED);
     }
 
-    out
+    flags
 }
 
 /// Is this status an unversioned file?
@@ -216,6 +297,9 @@ fn is_stashed(repo: &mut Repository) -> bool {
 
 /// Write the colorized branch of the current git repository
 fn write_git_branch(buf: &mut String, pallet: &Pallet, branch: &str) {
+    // Use ANSIStrings here instead of BashStrings since we don't need to escape
+    // non-printing characters when just writing from a bash function call (as opposed
+    // to using output for setting PS1).
     let _ = write!(
         buf,
         "{branch}",
@@ -227,6 +311,9 @@ fn write_git_branch(buf: &mut String, pallet: &Pallet, branch: &str) {
 fn write_git_status(buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags>) {
     let flag_str = flags.iter().map(|f| f.val()).collect::<Vec<&'static str>>().join("");
 
+    // Use ANSIStrings here instead of BashStrings since we don't need to escape
+    // non-printing characters when just writing from a bash function call (as opposed
+    // to using output for setting PS1).
     let _ = write!(
         buf,
         "{flags}",
@@ -242,15 +329,15 @@ fn write_git_status(buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags
 fn write_base_prompt(buf: &mut String, pallet: &Pallet) {
     let _ = write!(
         buf,
-        "\n{prompt}",
-        prompt = ANSIStrings(&[
-            pallet.cyan.paint(TIMESTAMP),
-            pallet.white.paint(" as "),
-            pallet.blue.paint(USER),
-            pallet.white.paint(" at "),
-            pallet.orange.paint(HOST),
-            pallet.white.paint(" in "),
-            pallet.green.paint(WORKING_DIR),
+        "\\n{prompt}",
+        prompt = BashStrings::new(&[
+            BashString::new(pallet.cyan, TIMESTAMP),
+            BashString::new(pallet.white, " as "),
+            BashString::new(pallet.blue, USER),
+            BashString::new(pallet.white, " at "),
+            BashString::new(pallet.orange, HOST),
+            BashString::new(pallet.white, " in "),
+            BashString::new(pallet.green, WORKING_DIR),
         ])
     );
 }
@@ -266,7 +353,7 @@ fn write_vcs_callback(buf: &mut String, path: &str) {
 
 /// Write the '$' prompt for user input on a newline
 fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: &str) {
-    let _ = write!(buf, "\n{} ", pallet.white.paint(input));
+    let _ = write!(buf, "\\n{} ", BashString::new(pallet.white, input));
 }
 
 /// Get a string to represent PS1 (normal Bash prompt)
@@ -280,7 +367,7 @@ fn get_ps1(pallet: &Pallet, input: &str, path: &str) -> String {
 
 /// Get a string to represent PS2 (line continuation)
 fn get_ps2(pallet: &Pallet) -> String {
-    format!("{}", pallet.yellow.paint("-> "))
+    format!("{}", BashString::new(pallet.yellow, "-> "))
 }
 
 /// Get a string to represent version control information
@@ -288,7 +375,7 @@ fn get_vcs(pallet: &Pallet) -> String {
     let mut buf = String::new();
 
     let path = get_current_dir();
-    let mut repo = path.and_then(|p| Repository::discover(p).ok());
+    let mut repo = path.and_then(|p| Repository::open(p).ok());
     if let Some(ref mut r) = repo {
         let git_branch = get_git_branch(r);
         let git_flags = get_git_flags(r);
@@ -305,7 +392,7 @@ fn get_vcs(pallet: &Pallet) -> String {
 }
 
 fn main() {
-    let opts = PrompterOptions::parse();
+    let opts = XpromptOptions::parse();
     let pallet = Pallet::default();
 
     let buf = match opts.mode {
