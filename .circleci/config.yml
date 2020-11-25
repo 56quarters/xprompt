@@ -1,0 +1,10 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:stable
+      - image: cimg/rust:beta
+      - image: cimg/rust:nightly
+    steps:
+      - checkout
+      - run: cargo test
