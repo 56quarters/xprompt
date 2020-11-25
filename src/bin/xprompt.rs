@@ -375,7 +375,7 @@ fn get_vcs(pallet: &Pallet) -> String {
     let mut buf = String::new();
 
     let path = get_current_dir();
-    let mut repo = path.and_then(|p| Repository::open(p).ok());
+    let mut repo = path.and_then(|p| Repository::discover(p).ok());
     if let Some(ref mut r) = repo {
         let git_branch = get_git_branch(r);
         let git_flags = get_git_flags(r);
