@@ -1,6 +1,7 @@
 # xprompt
 
-[![Build Status](https://travis-ci.org/56quarters/xprompt.svg?branch=master)](https://travis-ci.org/56quarters/xprompt)
+[![build status](https://circleci.com/gh/56quarters/xprompt.svg?style=shield)](https://circleci.com/gh/56quarters/xprompt)
+
 [![crates.io](https://img.shields.io/crates/v/xprompt.svg)](https://crates.io/crates/xprompt/)
 
 Display a colorful Bash prompt.
