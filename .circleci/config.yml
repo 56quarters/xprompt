@@ -2,7 +2,8 @@ version: 2
 jobs:
   build:
     docker:
-      - image: cimg/rust:latest
+      - image: rust:latest
     steps:
       - checkout
+      - run: cargo --version
       - run: cargo test
