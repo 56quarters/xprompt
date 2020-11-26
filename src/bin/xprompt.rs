@@ -48,9 +48,9 @@ enum SubCommand {
 /// Output a PS1 Bash prompt (standard prompt)
 #[derive(Debug, Clap)]
 struct Ps1Command {
-    /// Path to xprompt itself if not installed on your PATH
-    #[clap(long, default_value = "xprompt")]
-    path: String,
+    /// Path to xprompt itself (default is to detect this)
+    #[clap(long)]
+    path: Option<String>,
 
     /// Prompt for user input (usually '$' or '#')
     #[clap(long, default_value = "$")]
@@ -108,8 +108,8 @@ struct BashString<'a> {
 
 impl<'a> BashString<'a> {
     fn new<S>(style: Style, string: S) -> Self
-        where
-            S: Into<Cow<'a, str>>,
+    where
+        S: Into<Cow<'a, str>>,
     {
         BashString {
             style,
@@ -212,6 +212,12 @@ fn get_current_dir() -> Option<String> {
         // back to the standard library which will use platform specific logic and
         // potentially do a system call.
         .or_else(|| env::current_dir().ok().and_then(|p| p.to_str().map(|s| s.to_owned())))
+}
+
+/// Get the path to the current binary as a String in order to emit shell code
+/// to invoke xprompt in VCS mode.
+fn get_current_exe() -> Option<String> {
+    env::current_exe().ok().and_then(|p| p.to_str().map(|s| s.to_owned()))
 }
 
 /// Get the current git branch or commit if the current directory is a git repository
@@ -347,17 +353,18 @@ fn write_base_prompt(buf: &mut String, pallet: &Pallet) {
 /// PS1 is only set once per shell and we need version control information to
 /// reflect the current state of a repository every time the prompt is displayed.
 /// Thus, we don't emit the actual git status, just code to call xprompt again.
-fn write_vcs_callback(buf: &mut String, path: &str) {
-    let _ = write!(buf, " $({path} vcs)", path = path);
+fn write_vcs_callback(buf: &mut String, path: Option<String>) {
+    let callback = path.or_else(get_current_exe).unwrap_or_else(|| "xprompt".to_owned());
+    let _ = write!(buf, " $({callback} vcs)", callback = callback);
 }
 
 /// Write the '$' prompt for user input on a newline
-fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: &str) {
+fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: String) {
     let _ = write!(buf, "\\n{} ", BashString::new(pallet.white, input));
 }
 
 /// Get a string to represent PS1 (normal Bash prompt)
-fn get_ps1(pallet: &Pallet, input: &str, path: &str) -> String {
+fn get_ps1(pallet: &Pallet, input: String, path: Option<String>) -> String {
     let mut buf = String::new();
     write_base_prompt(&mut buf, pallet);
     write_vcs_callback(&mut buf, path);
@@ -396,7 +403,7 @@ fn main() {
     let pallet = Pallet::default();
 
     let buf = match opts.mode {
-        SubCommand::Ps1(c) => get_ps1(&pallet, &c.input, &c.path),
+        SubCommand::Ps1(c) => get_ps1(&pallet, c.input, c.path),
         SubCommand::Ps2(_c) => get_ps2(&pallet),
         SubCommand::Vcs(_c) => get_vcs(&pallet),
     };
