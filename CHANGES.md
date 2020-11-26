@@ -1,6 +1,11 @@
 # Changelog
 
-## [v0.1.1](https://github.com/56quarters/xprompt/tree/0.1.`) - 2020-11-08
+## [v0.2.0](https://github.com/56quarters/xprompt/tree/0.2.0`) - 2020-11-26
+* Detect `xprompt` binary path per [#3](https://github.com/56quarters/xprompt/issues/3).
+* Add init subcommand per [#2](https://github.com/56quarters/xprompt/issues/2).
+* Fix VCS repo detection per [#6](https://github.com/56quarters/xprompt/issues/6).
+
+## [v0.1.1](https://github.com/56quarters/xprompt/tree/0.1.1`) - 2020-11-08
 * Fix line editing bug per [#1](https://github.com/56quarters/xprompt/pull/1).
 
 ## [v0.1.0](https://github.com/56quarters/xprompt/tree/0.1.0) - 2020-10-29
