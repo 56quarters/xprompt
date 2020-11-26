@@ -40,10 +40,15 @@ struct XpromptOptions {
 
 #[derive(Debug, Clap)]
 enum SubCommand {
+    Init(InitCommand),
     Ps1(Ps1Command),
     Ps2(Ps2Command),
     Vcs(VcsCommand),
 }
+
+/// Emit Bash code to use xprompt for PS1 and PS2 prompts
+#[derive(Debug, Clap)]
+struct InitCommand;
 
 /// Output a PS1 Bash prompt (standard prompt)
 #[derive(Debug, Clap)]
@@ -363,6 +368,11 @@ fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: String) {
     let _ = write!(buf, "\\n{} ", BashString::new(pallet.white, input));
 }
 
+/// Get Bash code to use xprompt for for PS1 and PS2
+fn get_init() -> String {
+    include_str!("init.bash").to_owned()
+}
+
 /// Get a string to represent PS1 (normal Bash prompt)
 fn get_ps1(pallet: &Pallet, input: String, path: Option<String>) -> String {
     let mut buf = String::new();
@@ -403,6 +413,7 @@ fn main() {
     let pallet = Pallet::default();
 
     let buf = match opts.mode {
+        SubCommand::Init(_c) => get_init(),
         SubCommand::Ps1(c) => get_ps1(&pallet, c.input, c.path),
         SubCommand::Ps2(_c) => get_ps2(&pallet),
         SubCommand::Vcs(_c) => get_vcs(&pallet),
