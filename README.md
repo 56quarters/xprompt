@@ -30,6 +30,15 @@ To use `xprompt` to set your Bash prompt, add the following to your `.bashrc` or
 eval "$(xprompt init)"
 ```
 
+Or, if you'd rather not `eval` things.
+
+```
+PS1="$(xprompt ps1)"
+export PS1
+PS2="$(xprompt ps2)"
+export PS2
+```
+
 ![xprompt screenshot](img/screenshot.png)
 
 That's all you need!
