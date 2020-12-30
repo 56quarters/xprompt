@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 use std::env;
 use std::fmt::{self, Display, Formatter, Write};
 
-const TIMESTAMP: &str = r"\D{%Y-%m-%dT%H:%M:%S}";
+const TIMESTAMP: &str = r"\D{%H:%M:%S}";
 const USER: &str = r"\u";
 const WORKING_DIR: &str = r"\w";
 const HOST: &str = r"\h";
