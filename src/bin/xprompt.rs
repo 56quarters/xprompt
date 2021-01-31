@@ -208,17 +208,6 @@ impl Default for Pallet {
     }
 }
 
-/// Get the current working directory based on the `PWD` variable if possible
-/// or fall back to using a function from the standard library
-fn get_current_dir() -> Option<String> {
-    env::var("PWD")
-        .ok()
-        // Environmental variable is missing (maybe someone unset it), so we fall
-        // back to the standard library which will use platform specific logic and
-        // potentially do a system call.
-        .or_else(|| env::current_dir().ok().and_then(|p| p.to_str().map(|s| s.to_owned())))
-}
-
 /// Get the path to the current binary as a String in order to emit shell code
 /// to invoke xprompt in VCS mode.
 fn get_current_exe() -> Option<String> {
@@ -391,9 +380,7 @@ fn get_ps2(pallet: &Pallet) -> String {
 fn get_vcs(pallet: &Pallet) -> String {
     let mut buf = String::new();
 
-    let path = get_current_dir();
-    let mut repo = path.and_then(|p| Repository::discover(p).ok());
-    if let Some(ref mut r) = repo {
+    if let Ok(ref mut r) = Repository::discover(".") {
         let git_branch = get_git_branch(r);
         let git_flags = get_git_flags(r);
 
