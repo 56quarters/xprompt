@@ -32,7 +32,7 @@ const HOST: &str = r"\h";
 
 /// Display a colorful Bash prompt
 #[derive(Debug, Clap)]
-#[clap(name = "xprompt", version = crate_version!())]
+#[clap(name = "xprompt", version = crate_version ! ())]
 struct XpromptOptions {
     #[clap(subcommand)]
     mode: SubCommand,
@@ -50,6 +50,13 @@ enum SubCommand {
 #[derive(Debug, Clap)]
 struct InitCommand;
 
+impl InitCommand {
+    /// Get Bash code to use xprompt for for PS1 and PS2
+    fn run(self) -> String {
+        include_str!("init.bash").to_owned()
+    }
+}
+
 /// Output a PS1 Bash prompt (standard prompt)
 #[derive(Debug, Clap)]
 struct Ps1Command {
@@ -62,13 +69,204 @@ struct Ps1Command {
     input: String,
 }
 
+impl Ps1Command {
+    /// Get a string to represent PS1 (normal Bash prompt)
+    fn run(self, pallet: &Pallet) -> String {
+        let mut buf = String::new();
+        self.write_base_prompt(&mut buf, pallet);
+        self.write_vcs_callback(&mut buf);
+        self.write_command_prompt(&mut buf, pallet);
+        buf
+    }
+
+    /// Write some colorized basic information to the given buffer
+    fn write_base_prompt(&self, buf: &mut String, pallet: &Pallet) {
+        let _ = write!(
+            buf,
+            "\\n{prompt}",
+            prompt = BashStrings::new(&[
+                BashString::new(pallet.cyan, TIMESTAMP),
+                BashString::new(pallet.white, " as "),
+                BashString::new(pallet.blue, USER),
+                BashString::new(pallet.white, " at "),
+                BashString::new(pallet.orange, HOST),
+                BashString::new(pallet.white, " in "),
+                BashString::new(pallet.green, WORKING_DIR),
+            ])
+        );
+    }
+
+    /// Write Bash code to call xprompt again in "VCS" mode.
+    ///
+    /// PS1 is only set once per shell and we need version control information to
+    /// reflect the current state of a repository every time the prompt is displayed.
+    /// Thus, we don't emit the actual git status, just code to call xprompt again.
+    fn write_vcs_callback(&self, buf: &mut String) {
+        // If we got an explicit path option, use that. Otherwise try to figure it
+        // out from the currently running executable. Finally, fall back to just using
+        // the hardcoded "xprompt" command (which might be on the PATH).
+        let callback = self.path.as_ref().map(|s| s.to_owned()).unwrap_or_else(|| {
+            env::current_exe()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_owned()))
+                .unwrap_or_else(|| "xprompt".to_owned())
+        });
+
+        let _ = write!(buf, " $({callback} vcs)", callback = callback);
+    }
+
+    /// Write the '$' prompt for user input on a newline
+    fn write_command_prompt(&self, buf: &mut String, pallet: &Pallet) {
+        let _ = write!(buf, "\\n{} ", BashString::new(pallet.white, &self.input));
+    }
+}
+
 /// Output a PS2 Bash prompt (continuation)
 #[derive(Debug, Clap)]
 struct Ps2Command;
 
+impl Ps2Command {
+    /// Get a string to represent PS2 (line continuation)
+    fn run(self, pallet: &Pallet) -> String {
+        format!("{}", BashString::new(pallet.yellow, "-> "))
+    }
+}
+
 /// Output version control information
 #[derive(Debug, Clap)]
 struct VcsCommand;
+
+impl VcsCommand {
+    /// Get a string to represent version control information
+    fn run(self, pallet: &Pallet) -> String {
+        let mut buf = String::new();
+
+        if let Ok(ref mut r) = Repository::discover(".") {
+            let git_branch = self.get_git_branch(r);
+            let git_flags = self.get_git_flags(r);
+
+            if let Some(b) = git_branch {
+                self.write_git_branch(&mut buf, &pallet, &b);
+                if !git_flags.is_empty() {
+                    self.write_git_status(&mut buf, &pallet, &git_flags);
+                }
+            }
+        }
+
+        buf
+    }
+
+    /// Write the colorized branch of the current git repository
+    fn write_git_branch(&self, buf: &mut String, pallet: &Pallet, branch: &str) {
+        // Use ANSIStrings here instead of BashStrings since we don't need to escape
+        // non-printing characters when just writing from a bash function call (as opposed
+        // to using output for setting PS1).
+        let _ = write!(
+            buf,
+            "{branch}",
+            branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch),])
+        );
+    }
+
+    /// Write colorized information about the status of the current git repository
+    fn write_git_status(&self, buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags>) {
+        let flag_str = flags.iter().map(|f| f.val()).collect::<Vec<&'static str>>().join("");
+
+        // Use ANSIStrings here instead of BashStrings since we don't need to escape
+        // non-printing characters when just writing from a bash function call (as opposed
+        // to using output for setting PS1).
+        let _ = write!(
+            buf,
+            "{flags}",
+            flags = ANSIStrings(&[
+                pallet.blue.paint(" ["),
+                pallet.blue.paint(flag_str),
+                pallet.blue.paint("]"),
+            ])
+        );
+    }
+
+    /// Get the current git branch or commit if the current directory is a git repository
+    fn get_git_branch(&self, repo: &Repository) -> Option<String> {
+        if let Ok(r) = repo.head() {
+            if r.is_branch() {
+                r.shorthand().map(|s| s.to_owned())
+            } else {
+                r.peel_to_commit().ok().map(|c| c.id().to_string())
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get state of the current git repository (new files, modified, index, etc)
+    fn get_git_flags(&self, repo: &mut Repository) -> BTreeSet<GitFlags> {
+        let mut flags = BTreeSet::new();
+
+        if let Ok(statuses) = repo.statuses(None) {
+            for s in statuses.iter() {
+                let status = s.status();
+
+                if Self::is_unversioned(status) {
+                    flags.insert(GitFlags::UNVERSIONED);
+                }
+
+                if Self::is_working_tree_modified(status) {
+                    flags.insert(GitFlags::MODIFED);
+                }
+
+                if Self::is_index_modified(status) {
+                    flags.insert(GitFlags::ADDED);
+                }
+            }
+        }
+
+        if Self::is_stashed(repo) {
+            flags.insert(GitFlags::STASHED);
+        }
+
+        flags
+    }
+
+    /// Is this status an unversioned file?
+    #[inline]
+    fn is_unversioned(status: Status) -> bool {
+        (status & Status::WT_NEW) != Status::CURRENT
+    }
+
+    /// Is this status a modified file?
+    #[inline]
+    fn is_working_tree_modified(status: Status) -> bool {
+        (status & (Status::WT_DELETED | Status::WT_MODIFIED | Status::WT_RENAMED | Status::WT_TYPECHANGE))
+            != Status::CURRENT
+    }
+
+    /// Is this status a change to the index?
+    #[inline]
+    fn is_index_modified(status: Status) -> bool {
+        (status
+            & (Status::INDEX_DELETED
+                | Status::INDEX_MODIFIED
+                | Status::INDEX_NEW
+                | Status::INDEX_RENAMED
+                | Status::INDEX_TYPECHANGE))
+            != Status::CURRENT
+    }
+
+    /// Are there any stashed changes in this repository?
+    #[inline]
+    fn is_stashed(repo: &mut Repository) -> bool {
+        let stashed = Cell::new(false);
+
+        let _ = repo.stash_foreach(|_a: usize, _b: &str, _c: &Oid| -> bool {
+            stashed.set(true);
+            // stop as soon as we determine that there's any stash
+            false
+        });
+
+        stashed.get()
+    }
+}
 
 /// Potential states files in a Git repository or the repository itself could be in
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -208,202 +406,15 @@ impl Default for Pallet {
     }
 }
 
-/// Get the path to the current binary as a String in order to emit shell code
-/// to invoke xprompt in VCS mode.
-fn get_current_exe() -> Option<String> {
-    env::current_exe().ok().and_then(|p| p.to_str().map(|s| s.to_owned()))
-}
-
-/// Get the current git branch or commit if the current directory is a git repository
-fn get_git_branch(repo: &Repository) -> Option<String> {
-    if let Ok(r) = repo.head() {
-        if r.is_branch() {
-            r.shorthand().map(|s| s.to_owned())
-        } else {
-            r.peel_to_commit().ok().map(|c| c.id().to_string())
-        }
-    } else {
-        None
-    }
-}
-
-/// Get state of the current git repository (new files, modified, index, etc)
-fn get_git_flags(repo: &mut Repository) -> BTreeSet<GitFlags> {
-    let mut flags = BTreeSet::new();
-
-    if let Ok(statuses) = repo.statuses(None) {
-        for s in statuses.iter() {
-            let status = s.status();
-
-            if is_unversioned(status) {
-                flags.insert(GitFlags::UNVERSIONED);
-            }
-
-            if is_working_tree_modified(status) {
-                flags.insert(GitFlags::MODIFED);
-            }
-
-            if is_index_modified(status) {
-                flags.insert(GitFlags::ADDED);
-            }
-        }
-    }
-
-    if is_stashed(repo) {
-        flags.insert(GitFlags::STASHED);
-    }
-
-    flags
-}
-
-/// Is this status an unversioned file?
-#[inline]
-fn is_unversioned(status: Status) -> bool {
-    (status & Status::WT_NEW) != Status::CURRENT
-}
-
-/// Is this status a modified file?
-#[inline]
-fn is_working_tree_modified(status: Status) -> bool {
-    (status & (Status::WT_DELETED | Status::WT_MODIFIED | Status::WT_RENAMED | Status::WT_TYPECHANGE))
-        != Status::CURRENT
-}
-
-/// Is this status a change to the index?
-#[inline]
-fn is_index_modified(status: Status) -> bool {
-    (status
-        & (Status::INDEX_DELETED
-            | Status::INDEX_MODIFIED
-            | Status::INDEX_NEW
-            | Status::INDEX_RENAMED
-            | Status::INDEX_TYPECHANGE))
-        != Status::CURRENT
-}
-
-/// Are there any stashed changes in this repository?
-#[inline]
-fn is_stashed(repo: &mut Repository) -> bool {
-    let stashed = Cell::new(false);
-
-    let _ = repo.stash_foreach(|_a: usize, _b: &str, _c: &Oid| -> bool {
-        stashed.set(true);
-        // stop as soon as we determine that there's any stash
-        false
-    });
-
-    stashed.get()
-}
-
-/// Write the colorized branch of the current git repository
-fn write_git_branch(buf: &mut String, pallet: &Pallet, branch: &str) {
-    // Use ANSIStrings here instead of BashStrings since we don't need to escape
-    // non-printing characters when just writing from a bash function call (as opposed
-    // to using output for setting PS1).
-    let _ = write!(
-        buf,
-        "{branch}",
-        branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch),])
-    );
-}
-
-/// Write colorized information about the status of the current git repository
-fn write_git_status(buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags>) {
-    let flag_str = flags.iter().map(|f| f.val()).collect::<Vec<&'static str>>().join("");
-
-    // Use ANSIStrings here instead of BashStrings since we don't need to escape
-    // non-printing characters when just writing from a bash function call (as opposed
-    // to using output for setting PS1).
-    let _ = write!(
-        buf,
-        "{flags}",
-        flags = ANSIStrings(&[
-            pallet.blue.paint(" ["),
-            pallet.blue.paint(flag_str),
-            pallet.blue.paint("]"),
-        ])
-    );
-}
-
-/// Write some colorized basic information to the given buffer
-fn write_base_prompt(buf: &mut String, pallet: &Pallet) {
-    let _ = write!(
-        buf,
-        "\\n{prompt}",
-        prompt = BashStrings::new(&[
-            BashString::new(pallet.cyan, TIMESTAMP),
-            BashString::new(pallet.white, " as "),
-            BashString::new(pallet.blue, USER),
-            BashString::new(pallet.white, " at "),
-            BashString::new(pallet.orange, HOST),
-            BashString::new(pallet.white, " in "),
-            BashString::new(pallet.green, WORKING_DIR),
-        ])
-    );
-}
-
-/// Write Bash code to call xprompt again in "VCS" mode.
-///
-/// PS1 is only set once per shell and we need version control information to
-/// reflect the current state of a repository every time the prompt is displayed.
-/// Thus, we don't emit the actual git status, just code to call xprompt again.
-fn write_vcs_callback(buf: &mut String, path: Option<String>) {
-    let callback = path.or_else(get_current_exe).unwrap_or_else(|| "xprompt".to_owned());
-    let _ = write!(buf, " $({callback} vcs)", callback = callback);
-}
-
-/// Write the '$' prompt for user input on a newline
-fn write_command_prompt(buf: &mut String, pallet: &Pallet, input: String) {
-    let _ = write!(buf, "\\n{} ", BashString::new(pallet.white, input));
-}
-
-/// Get Bash code to use xprompt for for PS1 and PS2
-fn get_init() -> String {
-    include_str!("init.bash").to_owned()
-}
-
-/// Get a string to represent PS1 (normal Bash prompt)
-fn get_ps1(pallet: &Pallet, input: String, path: Option<String>) -> String {
-    let mut buf = String::new();
-    write_base_prompt(&mut buf, pallet);
-    write_vcs_callback(&mut buf, path);
-    write_command_prompt(&mut buf, pallet, input);
-    buf
-}
-
-/// Get a string to represent PS2 (line continuation)
-fn get_ps2(pallet: &Pallet) -> String {
-    format!("{}", BashString::new(pallet.yellow, "-> "))
-}
-
-/// Get a string to represent version control information
-fn get_vcs(pallet: &Pallet) -> String {
-    let mut buf = String::new();
-
-    if let Ok(ref mut r) = Repository::discover(".") {
-        let git_branch = get_git_branch(r);
-        let git_flags = get_git_flags(r);
-
-        if let Some(b) = git_branch {
-            write_git_branch(&mut buf, &pallet, &b);
-            if !git_flags.is_empty() {
-                write_git_status(&mut buf, &pallet, &git_flags);
-            }
-        }
-    }
-
-    buf
-}
-
 fn main() {
     let opts = XpromptOptions::parse();
     let pallet = Pallet::default();
 
     let buf = match opts.mode {
-        SubCommand::Init(_c) => get_init(),
-        SubCommand::Ps1(c) => get_ps1(&pallet, c.input, c.path),
-        SubCommand::Ps2(_c) => get_ps2(&pallet),
-        SubCommand::Vcs(_c) => get_vcs(&pallet),
+        SubCommand::Init(c) => c.run(),
+        SubCommand::Ps1(c) => c.run(&pallet),
+        SubCommand::Ps2(c) => c.run(&pallet),
+        SubCommand::Vcs(c) => c.run(&pallet),
     };
 
     print!("{}", buf);
