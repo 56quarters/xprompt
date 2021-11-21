@@ -16,14 +16,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-use ansi_term::{ANSIStrings, Color, Style};
-use clap::{crate_version, Clap};
-use git2::{Oid, Repository, Status};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::env;
 use std::fmt::{self, Display, Formatter, Write};
+
+use ansi_term::{ANSIStrings, Color, Style};
+use clap::{crate_version, Parser};
+use git2::{Oid, Repository, Status};
 
 const TIMESTAMP: &str = r"\D{%H:%M:%S}";
 const USER: &str = r"\u";
@@ -31,14 +32,14 @@ const WORKING_DIR: &str = r"\w";
 const HOST: &str = r"\h";
 
 /// Display a colorful Bash prompt
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 #[clap(name = "xprompt", version = crate_version ! ())]
 struct XpromptOptions {
     #[clap(subcommand)]
     mode: SubCommand,
 }
 
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 enum SubCommand {
     Init(InitCommand),
     Ps1(Ps1Command),
@@ -47,7 +48,7 @@ enum SubCommand {
 }
 
 /// Emit Bash code to use xprompt for PS1 and PS2 prompts
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 struct InitCommand;
 
 impl InitCommand {
@@ -58,7 +59,7 @@ impl InitCommand {
 }
 
 /// Output a PS1 Bash prompt (standard prompt)
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 struct Ps1Command {
     /// Path to xprompt itself (default is to detect this)
     #[clap(long)]
@@ -71,7 +72,7 @@ struct Ps1Command {
 
 impl Ps1Command {
     /// Get a string to represent PS1 (normal Bash prompt)
-    fn run(self, pallet: &Pallet) -> String {
+    fn run(self, pallet: Pallet) -> String {
         let mut buf = String::new();
         self.write_base_prompt(&mut buf, pallet);
         self.write_vcs_callback(&mut buf);
@@ -80,7 +81,7 @@ impl Ps1Command {
     }
 
     /// Write some colorized basic information to the given buffer
-    fn write_base_prompt(&self, buf: &mut String, pallet: &Pallet) {
+    fn write_base_prompt(&self, buf: &mut String, pallet: Pallet) {
         let _ = write!(
             buf,
             "\\n{prompt}",
@@ -116,29 +117,29 @@ impl Ps1Command {
     }
 
     /// Write the '$' prompt for user input on a newline
-    fn write_command_prompt(&self, buf: &mut String, pallet: &Pallet) {
+    fn write_command_prompt(&self, buf: &mut String, pallet: Pallet) {
         let _ = write!(buf, "\\n{} ", BashString::new(pallet.white, &self.input));
     }
 }
 
 /// Output a PS2 Bash prompt (continuation)
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 struct Ps2Command;
 
 impl Ps2Command {
     /// Get a string to represent PS2 (line continuation)
-    fn run(self, pallet: &Pallet) -> String {
+    fn run(self, pallet: Pallet) -> String {
         format!("{}", BashString::new(pallet.yellow, "-> "))
     }
 }
 
 /// Output version control information
-#[derive(Debug, Clap)]
+#[derive(Debug, Parser)]
 struct VcsCommand;
 
 impl VcsCommand {
     /// Get a string to represent version control information
-    fn run(self, pallet: &Pallet) -> String {
+    fn run(self, pallet: Pallet) -> String {
         let mut buf = String::new();
 
         if let Ok(ref mut r) = Repository::discover(".") {
@@ -146,9 +147,9 @@ impl VcsCommand {
             let git_flags = self.get_git_flags(r);
 
             if let Some(b) = git_branch {
-                self.write_git_branch(&mut buf, &pallet, &b);
+                self.write_git_branch(&mut buf, pallet, &b);
                 if !git_flags.is_empty() {
-                    self.write_git_status(&mut buf, &pallet, &git_flags);
+                    self.write_git_status(&mut buf, pallet, &git_flags);
                 }
             }
         }
@@ -157,19 +158,19 @@ impl VcsCommand {
     }
 
     /// Write the colorized branch of the current git repository
-    fn write_git_branch(&self, buf: &mut String, pallet: &Pallet, branch: &str) {
+    fn write_git_branch(&self, buf: &mut String, pallet: Pallet, branch: &str) {
         // Use ANSIStrings here instead of BashStrings since we don't need to escape
         // non-printing characters when just writing from a bash function call (as opposed
         // to using output for setting PS1).
         let _ = write!(
             buf,
             "{branch}",
-            branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch),])
+            branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch), ])
         );
     }
 
     /// Write colorized information about the status of the current git repository
-    fn write_git_status(&self, buf: &mut String, pallet: &Pallet, flags: &BTreeSet<GitFlags>) {
+    fn write_git_status(&self, buf: &mut String, pallet: Pallet, flags: &BTreeSet<GitFlags>) {
         let flag_str = flags.iter().map(|f| f.val()).collect::<Vec<&'static str>>().join("");
 
         // Use ANSIStrings here instead of BashStrings since we don't need to escape
@@ -208,21 +209,21 @@ impl VcsCommand {
                 let status = s.status();
 
                 if Self::is_unversioned(status) {
-                    flags.insert(GitFlags::UNVERSIONED);
+                    flags.insert(GitFlags::Unversioned);
                 }
 
                 if Self::is_working_tree_modified(status) {
-                    flags.insert(GitFlags::MODIFED);
+                    flags.insert(GitFlags::Modified);
                 }
 
                 if Self::is_index_modified(status) {
-                    flags.insert(GitFlags::ADDED);
+                    flags.insert(GitFlags::Added);
                 }
             }
         }
 
         if Self::is_stashed(repo) {
-            flags.insert(GitFlags::STASHED);
+            flags.insert(GitFlags::Stashed);
         }
 
         flags
@@ -246,10 +247,10 @@ impl VcsCommand {
     fn is_index_modified(status: Status) -> bool {
         (status
             & (Status::INDEX_DELETED
-                | Status::INDEX_MODIFIED
-                | Status::INDEX_NEW
-                | Status::INDEX_RENAMED
-                | Status::INDEX_TYPECHANGE))
+            | Status::INDEX_MODIFIED
+            | Status::INDEX_NEW
+            | Status::INDEX_RENAMED
+            | Status::INDEX_TYPECHANGE))
             != Status::CURRENT
     }
 
@@ -271,19 +272,19 @@ impl VcsCommand {
 /// Potential states files in a Git repository or the repository itself could be in
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 enum GitFlags {
-    UNVERSIONED,
-    MODIFED,
-    ADDED,
-    STASHED,
+    Unversioned,
+    Modified,
+    Added,
+    Stashed,
 }
 
 impl GitFlags {
     fn val(&self) -> &'static str {
         match self {
-            Self::UNVERSIONED => "?",
-            Self::MODIFED => "!",
-            Self::ADDED => "+",
-            Self::STASHED => "$",
+            Self::Unversioned => "?",
+            Self::Modified => "!",
+            Self::Added => "+",
+            Self::Stashed => "$",
         }
     }
 }
@@ -311,8 +312,8 @@ struct BashString<'a> {
 
 impl<'a> BashString<'a> {
     fn new<S>(style: Style, string: S) -> Self
-    where
-        S: Into<Cow<'a, str>>,
+        where
+            S: Into<Cow<'a, str>>,
     {
         BashString {
             style,
@@ -374,6 +375,7 @@ impl<'a> Display for BashStrings<'a> {
 }
 
 /// Colors to use for writing output
+#[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
 struct Pallet {
     black: Style,
@@ -412,9 +414,9 @@ fn main() {
 
     let buf = match opts.mode {
         SubCommand::Init(c) => c.run(),
-        SubCommand::Ps1(c) => c.run(&pallet),
-        SubCommand::Ps2(c) => c.run(&pallet),
-        SubCommand::Vcs(c) => c.run(&pallet),
+        SubCommand::Ps1(c) => c.run(pallet),
+        SubCommand::Ps2(c) => c.run(pallet),
+        SubCommand::Vcs(c) => c.run(pallet),
     };
 
     print!("{}", buf);
