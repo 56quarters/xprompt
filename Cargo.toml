@@ -1,6 +1,6 @@
 [package]
 name = "xprompt"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Nick Pillitteri"]
 description = "Display a colorful Bash prompt"
 homepage = "https://github.com/56quarters/xprompt"

@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.2](https://github.com/56quarters/xprompt/tree/0.2.2`) - 2021-11-27
+* Update dependency on `clap`
+* Minor lint cleanup
+
 ## [v0.2.1](https://github.com/56quarters/xprompt/tree/0.2.1`) - 2021-03-06
 * Refactor how commands are dispatched in each `xprompt` mode.
 
