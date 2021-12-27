@@ -16,15 +16,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
+use ansi_term::{ANSIStrings, Color, Style};
+use clap::{crate_version, Parser};
+use git2::{Oid, Repository, Status};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::env;
 use std::fmt::{self, Display, Formatter, Write};
-
-use ansi_term::{ANSIStrings, Color, Style};
-use clap::{crate_version, Parser};
-use git2::{Oid, Repository, Status};
 
 const TIMESTAMP: &str = r"\D{%H:%M:%S}";
 const USER: &str = r"\u";
@@ -33,7 +32,7 @@ const HOST: &str = r"\h";
 
 /// Display a colorful Bash prompt
 #[derive(Debug, Parser)]
-#[clap(name = "xprompt", version = crate_version ! ())]
+#[clap(name = "xprompt", version = crate_version!())]
 struct XpromptOptions {
     #[clap(subcommand)]
     mode: SubCommand,
@@ -165,7 +164,7 @@ impl VcsCommand {
         let _ = write!(
             buf,
             "{branch}",
-            branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch), ])
+            branch = ANSIStrings(&[pallet.white.paint("on "), pallet.violet.paint(branch),])
         );
     }
 
@@ -247,10 +246,10 @@ impl VcsCommand {
     fn is_index_modified(status: Status) -> bool {
         (status
             & (Status::INDEX_DELETED
-            | Status::INDEX_MODIFIED
-            | Status::INDEX_NEW
-            | Status::INDEX_RENAMED
-            | Status::INDEX_TYPECHANGE))
+                | Status::INDEX_MODIFIED
+                | Status::INDEX_NEW
+                | Status::INDEX_RENAMED
+                | Status::INDEX_TYPECHANGE))
             != Status::CURRENT
     }
 
@@ -312,8 +311,8 @@ struct BashString<'a> {
 
 impl<'a> BashString<'a> {
     fn new<S>(style: Style, string: S) -> Self
-        where
-            S: Into<Cow<'a, str>>,
+    where
+        S: Into<Cow<'a, str>>,
     {
         BashString {
             style,

@@ -1,6 +1,6 @@
 [package]
 name = "xprompt"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Nick Pillitteri"]
 description = "Display a colorful Bash prompt"
 homepage = "https://github.com/56quarters/xprompt"
@@ -12,6 +12,5 @@ edition = "2018"
 
 [dependencies]
 ansi_term = "0.12.1"
-clap = "3.0.0-beta.5"
-clap_derive = "3.0.0-beta.5"
+clap = {version = "3.0.0-rc.8", features = ["derive", "cargo"]}
 git2 = { version = "0.13.12", default-features = false }

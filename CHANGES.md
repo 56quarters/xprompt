@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.2.3](https://github.com/56quarters/xprompt/tree/0.2.3`) - 2021-12-16
+* Update dependency on `clap`
+
 ## [v0.2.2](https://github.com/56quarters/xprompt/tree/0.2.2`) - 2021-11-27
 * Update dependency on `clap`
 * Minor lint cleanup
