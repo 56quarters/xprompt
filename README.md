@@ -1,6 +1,6 @@
 # xprompt
 
-[![build status](https://circleci.com/gh/56quarters/xprompt.svg?style=shield)](https://circleci.com/gh/56quarters/xprompt)
+![build status](https://github.com/56quarters/xprompt/actions/workflows/rust.yml/badge.svg)
 
 [![crates.io](https://img.shields.io/crates/v/xprompt.svg)](https://crates.io/crates/xprompt/)
 
